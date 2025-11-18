@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Block Puzzle Web</title>
+  <style>
+    body { background:#eee; display:flex; justify-content:center; padding:20px; font-family:sans-serif; }
+    canvas { background:#f8f8f8; border:2px solid #333; }
+  </style>
+</head>
+<body>
+<canvas id="game" width="600" height="740"></canvas>
+<script>
+// ===== Web Block Puzzle Game (Canvas) =====
+const SIZE = 8;
+const CELL = 60;
+const TRAY_H = 140;
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// Palette for block colors
+const palette = ["#ff6666","#66aaff","#88dd66","#ffaa44","#dd66ff","#66dddd"]; 
+
+let grid = Array.from({length:SIZE},()=>Array(SIZE).fill(null));
+let gameOver = false;
+let score = 0;
+let combo = 1;
+let effectTimer = 0;
+
+// Shapes
+const shapes = [
+  [ [1,0], [1,0], [1,1] ],        // L
+  [ [1,1,1],[1,1,1],[1,1,1] ],    // 3x3
+  [ [1],[1],[1] ],               // Vertical 3
+  [ [1,1,1] ]                    // Horizontal 3
+];
+
+let tray = [newTrayItem(), newTrayItem(), newTrayItem()];
+let dragging = -1;
+let dragDX = 0, dragDY = 0;
+
+function newTrayItem(){
+  return {
+    si: Math.floor(Math.random()*shapes.length),
+    x: 60 + Math.random()*200,
+    y: SIZE*CELL + 20,
+    scale: 0.5,
+    color: palette[Math.floor(Math.random()*palette.length)]
+  };
+}
+
+canvas.addEventListener("mousedown", e=>{
+  if(gameOver){ restart(); return; }
+  const mx = e.offsetX, my = e.offsetY;
+  for(let i=0;i<3;i++){
+    const t = tray[i];
+    const s = shapes[t.si];
+    const w = s[0].length * CELL * t.scale;
+    const h = s.length * CELL * t.scale;
+    if(mx>=t.x && mx<=t.x+w && my>=t.y && my<=t.y+h){
+      dragging = i;
+      dragDX = w/2;
+      dragDY = h/2;
+      return;
+    }
+  }
+});
+
+canvas.addEventListener("mouseup", e=>{
+  if(dragging<0) return;
+  const t = tray[dragging];
+  const s = shapes[t.si];
+  const mx = e.offsetX - dragDX;
+  const my = e.offsetY - dragDY;
+  const r = Math.floor(my / CELL);
+  const c = Math.floor(mx / CELL);
+
+  if(canPlace(s,r,c)){
+    place(s,r,c,t.color);
+    tray[dragging] = newTrayItem();
+    const cleared = clearLines();
+    if(cleared>0){
+      score += cleared * combo;
+      combo++;
+      effectTimer = 20;
+    } else {
+      combo = 1;
+    }
+    checkGameOver();
+  }
+  dragging = -1;
+});
+
+function canPlace(s,r,c){
+  for(let i=0;i<s.length;i++) for(let j=0;j<s[0].length;j++) if(s[i][j]){
+    const rr = r+i, cc = c+j;
+    if(rr<0||rr>=SIZE||cc<0||cc>=SIZE) return false;
+    if(grid[rr][cc]!==null) return false;
+  }
+  return true;
+}
+
+function place(s,r,c,color){
+  for(let i=0;i<s.length;i++) for(let j=0;j<s[0].length;j++) if(s[i][j]){
+    grid[r+i][c+j] = color;
+  }
+}
+
+function clearLines(){
+  let cleared = 0;
+  for(let r=0;r<SIZE;r++){
+    if(grid[r].every(v=>v!==null)){
+      grid[r].fill(null);
+      cleared += SIZE;
+    }
+  }
+  for(let c=0;c<SIZE;c++){
+    let full = true;
+    for(let r=0;r<SIZE;r++) if(grid[r][c]===null) full=false;
+    if(full){
+      for(let r=0;r<SIZE;r++) grid[r][c]=null;
+      cleared += SIZE;
+    }
+  }
+  return cleared;
+}
+
+function checkGameOver(){
+  for(const t of tray){
+    const s = shapes[t.si];
+    for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++) if(canPlace(s,r,c)) return;
+  }
+  gameOver = true;
+}
+
+function restart(){
+  grid = Array.from({length:SIZE},()=>Array(SIZE).fill(null));
+  tray = [newTrayItem(), newTrayItem(), newTrayItem()];
+  score = 0;
+  combo = 1;
+  gameOver = false;
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // grid
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    ctx.strokeStyle="#000";
+    ctx.fillStyle = grid[r][c] ?? "#fff";
+    ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+    ctx.strokeRect(c*CELL, r*CELL, CELL, CELL);
+  }
+
+  // tray
+  tray.forEach((t,i)=>{
+    if(i!==dragging) drawShape(t.si, t.x, t.y, t.scale, t.color);
+  });
+
+  // dragging shape
+  if(dragging>=0){
+    const t = tray[dragging];
+    drawShape(t.si, eventMouseX - dragDX, eventMouseY - dragDY, 1, t.color);
+  }
+
+  // score
+  ctx.fillStyle="#000";
+  ctx.font="24px sans-serif";
+  ctx.fillText("Score: "+score, 10, SIZE*CELL+TRAY_H-10);
+
+  // effect
+  if(effectTimer>0){
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    effectTimer--;
+  }
+
+  if(gameOver){
+    ctx.fillStyle="rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#fff";
+    ctx.font="48px sans-serif";
+    ctx.fillText("GAME OVER", canvas.width/2-140, canvas.height/2-20);
+    ctx.font="32px sans-serif";
+    ctx.fillText("Click to Continue", canvas.width/2-160, canvas.height/2+40);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// track mouse
+let eventMouseX=0, eventMouseY=0;
+canvas.addEventListener("mousemove", e=>{
+  eventMouseX = e.offsetX;
+  eventMouseY = e.offsetY;
+});
+
+function drawShape(si,x,y,scale,color){
+  const s = shapes[si];
+  ctx.fillStyle = color;
+  ctx.strokeStyle="#000";
+  for(let r=0;r<s.length;r++) for(let c=0;c<s[0].length;c++) if(s[r][c]){
+    ctx.fillRect(x + c*CELL*scale, y + r*CELL*scale, CELL*scale, CELL*scale);
+    ctx.strokeRect(x + c*CELL*scale, y + r*CELL*scale, CELL*scale, CELL*scale);
+  }
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
